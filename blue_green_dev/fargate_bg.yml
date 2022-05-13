@@ -1,0 +1,325 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: CloudFormation Setting
+      Parameters:
+      - Prefix
+    - Label:
+        default: Network Setting
+      Parameters:
+      - Vpc
+      - Subnet1aPublic
+      - Subnet1cPublic
+      - Subnet1dPublic
+      - Subnet1aPrivate
+      - Subnet1cPrivate
+      - Subnet1dPrivate
+    - Label:
+        default: Load Balancer Setting
+      Parameters:
+      - AcmCertificateArn
+      - PortEcs
+      - Eip1
+      - Eip2
+      - Eip3
+      - HealthCheckPath
+Parameters:
+  Prefix:
+    Type: String
+    Default: myecs
+  Vpc:
+    Type: AWS::EC2::VPC::Id
+  Subnet1aPublic:
+    Type: AWS::EC2::Subnet::Id
+  Subnet1cPublic:
+    Type: AWS::EC2::Subnet::Id
+  Subnet1dPublic:
+    Type: AWS::EC2::Subnet::Id
+  Subnet1aPrivate:
+    Type: AWS::EC2::Subnet::Id
+  Subnet1cPrivate:
+    Type: AWS::EC2::Subnet::Id
+  Subnet1dPrivate:
+    Type: AWS::EC2::Subnet::Id
+  AcmCertificateArn:
+    Type: String
+    Default: arn:aws:acm:ap-northeast-1:<AWS Account ID>:certificate/~~~~~
+    Description: ACM Certificate ARN
+  PortEcs:
+    Type: Number
+    Default: 3000
+  Eip1:
+    Type: String
+    Description: Allocation ID of an Elastic IP Address
+  Eip2:
+    Type: String
+    Description: Allocation ID of an Elastic IP Address
+  Eip3:
+    Type: String
+    Description: Allocation ID of an Elastic IP Address
+  HealthCheckPath:
+    Type: String
+    Default: /
+Transform:
+  - AWS::CodeDeployBlueGreen
+Hooks:
+  CodeDeployBlueGreenHook:
+    Properties:
+      Applications:
+      - Target:
+          Type: AWS::ECS::Service
+          LogicalID: EcsService
+        ECSAttributes:
+          TaskDefinitions:
+          - TaskDefBlue
+          - TaskDefGreen
+          TaskSets:
+          - TaskSetBlue
+          - TaskSetGreen
+          TrafficRouting:
+            ProdTrafficRoute:
+              Type: AWS::ElasticLoadBalancingV2::Listener
+              LogicalID: ListerHttps
+            TargetGroups:
+            - TgAlbBlue
+            - TgAlbGreen
+    Type: AWS::CodeDeploy::BlueGreen
+Resources:
+  # ------------------------------------------------------------#
+  # SG
+  # ------------------------------------------------------------#
+  SgAlb:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG for ALB
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 3000
+        ToPort: 3000
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        CidrIp: 0.0.0.0/0
+  SgEcs:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG for ECS
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 3000
+        ToPort: 3000
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        CidrIp: 0.0.0.0/0
+  # ------------------------------------------------------------#
+  # ALB
+  # ------------------------------------------------------------#
+  AlbEcs:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Prefix}-alb
+      Scheme: internal
+      SecurityGroups:
+      - !Ref SgAlb
+      Subnets:
+      - !Ref Subnet1aPrivate
+      - !Ref Subnet1cPrivate
+      - !Ref Subnet1dPrivate
+      Type: application
+      IpAddressType: ipv4
+  ListerHttps:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        ForwardConfig:
+          TargetGroups:
+          - TargetGroupArn: !Ref TgAlbBlue
+            Weight: 1
+      LoadBalancerArn: !Ref AlbEcs
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+      - CertificateArn: !Ref AcmCertificateArn
+  ListerPortEcs:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: fixed-response
+        FixedResponseConfig:
+          StatusCode: 200
+      LoadBalancerArn: !Ref AlbEcs
+      Port: 3000
+      Protocol: HTTP
+  TgAlbBlue:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Prefix}-tg-alb-blue
+      HealthCheckIntervalSeconds: 300
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckPort: 3000
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 60
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 4
+      Matcher:
+        HttpCode: 200
+      Port: 3000
+      Protocol: HTTP
+      Tags:
+      - Key: Group
+        Value: Example
+      TargetType: ip
+      VpcId: !Ref Vpc
+  TgAlbGreen:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Prefix}-tg-alb-green
+      HealthCheckIntervalSeconds: 300
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckPort: 3000
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 60
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 4
+      Matcher:
+        HttpCode: 200
+      Port: 3000
+      Protocol: HTTP
+      Tags:
+      - Key: Group
+        Value: Example
+      TargetType: ip
+      VpcId: !Ref Vpc
+  # ------------------------------------------------------------#
+  # NLB
+  # ------------------------------------------------------------#
+  Nlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Prefix}-nlb
+      Scheme: internet-facing
+      Type: network
+      IpAddressType: ipv4
+      SubnetMappings:
+      - AllocationId: !Ref Eip1
+        SubnetId: !Ref Subnet1aPublic
+      - AllocationId: !Ref Eip2
+        SubnetId: !Ref Subnet1cPrivate
+      - AllocationId: !Ref Eip3
+        SubnetId: !Ref Subnet1dPrivate
+  NlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref TgNlb
+      LoadBalancerArn: !Ref Nlb
+      Port: 443
+      Protocol: TCP
+  TgNlb:
+    DependsOn:
+    - ListerHttps
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Prefix}-tg-nlb
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckPort: 3000
+      HealthCheckProtocol: HTTP
+      Port: 443
+      Protocol: TCP
+      Targets:
+      - Id: !Ref AlbEcs
+        Port: 443
+      TargetType: alb
+      VpcId: !Ref Vpc
+  # ------------------------------------------------------------#
+  # ECS
+  # ------------------------------------------------------------#
+  RoleEcsTask:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+  TaskDefBlue:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ExecutionRoleArn: !GetAtt 
+      - RoleEcsTask
+      - Arn
+      ContainerDefinitions:
+      - Name: !Sub ${Prefix}-ecs-container
+        # ----------------------------- Image URI ----------------------------------------------#
+        Image: 
+        # --------------------------------------------------------------------------------------#
+        PortMappings:
+        - Protocol: tcp
+          HostPort: 3000
+          ContainerPort: 3000
+      RequiresCompatibilities:
+      - FARGATE
+      NetworkMode: awsvpc
+      # --- Image size---#
+      Cpu: 256
+      Memory: 512
+      # --------------------------------------------------------------------------------#
+      Family: !Sub ${Prefix}-ecs-task
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${Prefix}-ecs-cluster
+  EcsService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref EcsCluster
+      DeploymentController:
+        Type: EXTERNAL
+      ServiceName: !Sub ${Prefix}-ecs-service
+  TaskSetBlue:
+    Type: AWS::ECS::TaskSet
+    Properties:
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsVpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+          - !Ref SgEcs
+          Subnets:
+          - !Ref Subnet1aPrivate
+          - !Ref Subnet1cPrivate
+          - !Ref Subnet1dPrivate
+      PlatformVersion: 1.4.0
+      Scale:
+        Unit: PERCENT
+        Value: 100
+      Service: !Ref EcsService
+      TaskDefinition: !Ref TaskDefBlue
+      LoadBalancers:
+      - ContainerName: !Sub ${Prefix}-ecs-container
+        ContainerPort: 3000
+        TargetGroupArn: !Ref TgAlbBlue
+  PrimaryTaskSet:
+    Type: AWS::ECS::PrimaryTaskSet
+    Properties:
+      Cluster: !Ref EcsCluster
+      Service: !Ref EcsService
+      TaskSetId: !GetAtt 
+      - TaskSetBlue
+      - Id
