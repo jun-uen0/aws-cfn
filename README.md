@@ -1,6 +1,2 @@
-# CloudFormation Template for ECS Fargate Blue/Green deployment
+# CloudFormation Templates
 
-
-# todo
-- Register domain to ACM
-- Image pic on Figma
