@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: CloudFormation Setting
+      Parameters:
+      - Prefix
+      - Env
+    - Label:
+        default: Network Setting
+      Parameters:
+      - Vpc
+      - Subnet1a
+      - Subnet1c
+      - Subnet1d
+    - Label:
+        default: Load Balancer Setting
+      Parameters:
+      - AcmCertificateArn
+      - Eip1a
+      - Eip1c
+      - Eip1d
+Parameters:
+  Prefix:
+    Type: String
+  Env:
+    Type: String
+    AllowedValues:
+    - dev
+    - qa
+    - prod
+  Vpc:
+    Type: AWS::EC2::VPC::Id
+    Description: Select {prefix}-vpc-{env}
+  Subnet1a:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select {prefix}-subnet-1a-{env}
+  Subnet1c:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select {prefix}-subnet-1c-{env}
+  Subnet1d:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select {prefix}-subnet-1d-{env}
+  Eip1a:
+    Type: String
+    Default: Ex.) eipalloc-xxxxxxxxx
+    Description: Enter Allocation ID of an Elastic IP Address
+  Eip1c:
+    Type: String
+    Default: Ex.) eipalloc-xxxxxxxxx
+    Description: Enter Allocation ID of an Elastic IP Address
+  Eip1d:
+    Type: String
+    Default: Ex.) eipalloc-xxxxxxxxx
+    Description: Enter Allocation ID of an Elastic IP Address
+Resources:
+  Nlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Prefix}-nlb-${Env}
+      Scheme: internet-facing
+      Type: network
+      IpAddressType: ipv4
+      SubnetMappings:
+      - AllocationId: !Ref Eip1a
+        SubnetId: !Ref Subnet1a
+      - AllocationId: !Ref Eip1c
+        SubnetId: !Ref Subnet1c
+      - AllocationId: !Ref Eip1d
+        SubnetId: !Ref Subnet1d

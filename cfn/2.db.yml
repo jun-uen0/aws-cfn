@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: CloudFormation Setting
+      Parameters:
+      - Prefix
+      - Env
+    - Label:
+        default: Network Setting
+      Parameters:
+      - Vpc
+      - Subnet1c
+      - Subnet1d
+    - Label:
+        default: Database Setting
+      Parameters:
+      - MasterPassword
+      - MasterName
+Parameters:
+  Prefix:
+    Type: String    
+  Env:
+    Type: String
+    AllowedValues:
+    - dev
+    - qa
+    - prod
+  Vpc:
+    Type: AWS::EC2::VPC::Id
+  Subnet1c:
+    Type: AWS::EC2::Subnet::Id
+  Subnet1d:
+    Type: AWS::EC2::Subnet::Id
+  MasterPassword:
+    NoEcho: true
+    Description : Password for DB (4 ~ 16 words)
+    Type: String
+    MinLength: 4
+    MaxLength: 16
+    AllowedPattern : "[a-zA-Z0-9]+"
+    Default: "password"
+  MasterName:
+    Type: String
+    Default: "master"
+    Description: User name for DB
+Resources:
+  # ------------------------------------------------------------#
+  # SG for DB
+  # ------------------------------------------------------------#
+  SgDb:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Prefix}-sg-db-${Env}
+      GroupDescription: Security Group for Database
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - IpProtocol: TCP
+        FromPort: 27017
+        ToPort: 27017
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: TCP
+        FromPort: 27017
+        ToPort: 27017
+        CidrIpv6: ::/0
+      - IpProtocol: TCP
+        FromPort: 8081
+        ToPort: 8081
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: TCP
+        FromPort: 8081
+        ToPort: 8081
+        CidrIpv6: ::/0
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${Prefix}-sg-db-${Env}
+  # ------------------------------------------------------------#
+  # DB
+  # ------------------------------------------------------------#
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${Prefix}-dbsubnetgroup-${Env}
+      DBSubnetGroupDescription: Subnet Group for Database
+      SubnetIds:
+      - !Ref Subnet1c
+      - !Ref Subnet1d
+  DbParameterGroup:
+    Type: "AWS::DocDB::DBClusterParameterGroup"
+    Properties:
+      Description: Parameter Group for Database
+      Family: docdb4.0
+      Name: !Sub ${Prefix}-dbparametegroup-${Env}
+      Parameters: 
+        tls: disabled
+  DbCluster:
+    Type: AWS::DocDB::DBCluster
+    Properties:
+      DBClusterParameterGroupName: !Ref DbParameterGroup
+      DBClusterIdentifier: !Sub ${Prefix}-db-cluster-${Env}
+      EngineVersion: 4.0.0
+      Port: 27017
+      MasterUsername: !Ref MasterName
+      MasterUserPassword: !Ref MasterPassword
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      StorageEncrypted: true
+      VpcSecurityGroupIds:
+      - !Ref SgDb
+  DbInstance1c:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${DbCluster}-1
+      DBInstanceClass: db.t3.medium
+      Engine: docdb
+      EngineVersion: 4.0.0
+      AutoMinorVersionUpgrade: true
+      LicenseModel: na
+      PubliclyAccessible: false
+      StorageType: aurora
+      DBClusterIdentifier: !Ref DbCluster
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      AvailabilityZone: <Region>c
+  DbInstance1d:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${DbCluster}-2
+      DBInstanceClass: db.t3.medium
+      Engine: docdb
+      EngineVersion: 4.0.0
+      AutoMinorVersionUpgrade: true
+      LicenseModel: na
+      PubliclyAccessible: false
+      StorageType: aurora
+      DBClusterIdentifier: !Ref DbCluster
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      AvailabilityZone: <Region>d

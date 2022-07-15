@@ -1,0 +1,100 @@
+@startuml
+left to right direction
+skinparam noteTextAlignment center
+
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/main/dist
+!includeurl AWSPuml/AWSCommon.puml
+!includeurl AWSPuml/GroupIcons/VirtualPrivateCloudVPC.puml
+!includeurl AWSPuml/GroupIcons/VPCSubnetPublic.puml
+!includeurl AWSPuml/NetworkingContentDelivery/VPCInternetGateway.puml
+!includeurl AWSPuml/Database/DocumentDB.puml
+!includeurl AWSPuml/Database/AuroraAmazonRDSInstance.puml
+!includeurl AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!includeurl AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingNetworkLoadBalancer.puml
+!includeurl AWSPuml/SecurityIdentityCompliance/IdentityAccessManagementRole.puml
+!includeurl AWSPuml/Containers/ElasticContainerRegistry.puml
+!includeurl AWSPuml/Containers/ElasticContainerRegistryImage.puml
+!includeurl AWSPuml/Containers/ElasticContainerService.puml
+!includeurl AWSPuml/Containers/ElasticContainerServiceContainer1.puml
+!includeurl AWSPuml/Containers/ElasticContainerServiceService.puml
+!includeurl AWSPuml/Containers/ElasticContainerServiceTask.puml
+!includeurl AWSPuml/Storage/SimpleStorageServiceBucket.puml
+!includeurl AWSPuml/SecurityIdentityCompliance/WAF.puml
+!includeurl AWSPuml/ManagementGovernance/CloudFormationStack.puml
+!includeurl AWSPuml/Compute/EC2.puml
+!includeurl AWSPuml/SecurityIdentityCompliance/CertificateManager.puml
+!includeurl AWSPuml/Compute/EC2ElasticIPAddress.puml
+
+actor Developer as dev
+actor User as user
+
+package base.yml {
+  VirtualPrivateCloudVPC(Vpc,"VPC({prefix}-vpc-{env})","10.0.0.0/16")
+  VPCInternetGateway(Igw,"Internet Gateway ({prefix}-db-{env})","igw-xxxxxxxxxx")
+  frame SubnetsPub {
+    VPCSubnetPublic(Subnet1a,"subnet-1a","10.0.0.0/24")
+    VPCSubnetPublic(Subnet1c,"subnet-1c","10.0.1.0/24")
+    VPCSubnetPublic(Subnet1d,"subnet-1d","10.0.2.0/24")
+  }
+  Igw -> Vpc
+  SubnetsPub --> Vpc
+}
+package db.yml {
+  database {
+    DocumentDB(DocDb,"Document DB({prefix}-db-{env})","igw-01366bc9247a27619")
+    node "DB Instance" {
+      AuroraAmazonRDSInstance(DbInstance1,"DB Instance 1","db.t3.medium")
+      AuroraAmazonRDSInstance(DbInstance2,"DB Instance 2","db.t3.medium")
+    }
+  }
+  [**Secury Group (DB用)**\nInbound:27017/8081\nOutbound:All]
+  DbInstance1 --> DocDb
+  DbInstance2 --> DocDb
+}
+package ecs.yml {
+  ElasticLoadBalancingNetworkLoadBalancer(Nlb,"NLB({prefix}-nlb-{env})","internet-facing") {
+    (**TargetGroup**\nTCP:443) as (NlbTg)
+    (**Lister**\nTCP:443\nType: Forward) as (NlbLister)
+  }
+  ElasticLoadBalancingApplicationLoadBalancer(Alb,"ALB({prefix}-alb-{env})","internal"){
+    (**TargetGroup**\nHTTP:xxxx/Target: ALB) as (AlbTg)
+    (**Lister**\nHTTPS:443\nType: Forward) as (AlbLister)
+[**Secury Group (for ECS)**\nInbound:xxxx/443\nOutbound:All]
+  }
+  IdentityAccessManagementRole(Role,"ECS Task Role","ecs-tasks.amazonaws.com")
+EC2ElasticIPAddress(Eip,"Elastic IP","Domain")
+  ElasticContainerRegistry(Ecr,"ECR","{prefix}-ecr-{env}"){
+    ElasticContainerRegistryImage(EcrImage,"Docker Image","image:latest")
+  }
+  ElasticContainerService(Ecs,"ECS Cluster","{prefix}-ecs-cluster-{env}"){
+    ElasticContainerServiceService(EcsService,"ECS Service","{prefix}-ecs-service-{env}")
+    ElasticContainerServiceTask(EcsTask,"ECS Task Definition","{prefix}-ecs-task-{env}")
+    ElasticContainerServiceContainer1(EcsContainer,"ECS Container","{prefix}-ecs-container-{env}"){
+      (**Port**\nContainer Port: xxxx\nHost Port: xxxx) as ContainerPort
+    }
+[**Secury Group (ECS用)**\nInbound:xxxx\nOutbound:All]
+  }
+  CertificateManager(Acm,"SSL Certificate","Domain")
+  EcsContainer --> EcsService: ECS Service Setting
+  EcsService -> EcsTask: ECS Task Setting
+  EcsTask --> EcrImage: Docker Image
+  Ecs ---> Role: Task Execution Role
+  Alb --> Acm: ACM SSL Certificate
+  Nlb ---> Eip: Elastic IPs
+}
+package waf.yml {
+  SimpleStorageServiceBucket(S3Bucket,"S3 Bucket","aws-waf-logs-{prefix}-{env}-id")
+  WAF(Waf,"WAF","{prefix}-web-acl-{env}")
+  S3Bucket --> Waf: To Collect error logs
+
+user --> (NlbLister): HTTPS Access
+(NlbLister) -> (NlbTg)
+(NlbTg) --> (AlbLister):  Forward
+(AlbLister) -> (AlbTg)
+(AlbTg) --> ContainerPort:  Forward
+dev --> Ecr: Push the Image
+DocDb --> SubnetsPub
+Waf --> EcsContainer: Watch the errors
+Alb --> Vpc
+Nlb ---> Vpc
+@enduml

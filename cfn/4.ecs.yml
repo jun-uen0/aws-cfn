@@ -6,62 +6,79 @@ Metadata:
         default: CloudFormation Setting
       Parameters:
       - Prefix
+      - Env
     - Label:
         default: Network Setting
       Parameters:
       - Vpc
-      - Subnet1aPublic
-      - Subnet1cPublic
-      - Subnet1dPublic
-      - Subnet1aPrivate
-      - Subnet1cPrivate
-      - Subnet1dPrivate
+      - Subnet1a
+      - Subnet1c
+      - Subnet1d
     - Label:
         default: Load Balancer Setting
       Parameters:
+      - NlbArn
       - AcmCertificateArn
-      - PortEcs
-      - Eip1
-      - Eip2
-      - Eip3
-      - HealthCheckPath
+      - Eip1a
+      - Eip1c
+      - Eip1d
+    - Label:
+        default: ECS Setting
+      Parameters:
+      - FargateCpu
+      - FargateMem
+      - TaskRoleArn
 Parameters:
   Prefix:
     Type: String
-    Default: myecs
+  Env:
+    Type: String
+    AllowedValues:
+    - dev
+    - qa
+    - prod
   Vpc:
     Type: AWS::EC2::VPC::Id
-  Subnet1aPublic:
+    Description: Select {prefix}-vpc
+  Subnet1a:
     Type: AWS::EC2::Subnet::Id
-  Subnet1cPublic:
+    Description: Select {prefix}-subnet-1a
+  Subnet1c:
     Type: AWS::EC2::Subnet::Id
-  Subnet1dPublic:
+    Description: Select {prefix}-subnet-1c
+  Subnet1d:
     Type: AWS::EC2::Subnet::Id
-  Subnet1aPrivate:
-    Type: AWS::EC2::Subnet::Id
-  Subnet1cPrivate:
-    Type: AWS::EC2::Subnet::Id
-  Subnet1dPrivate:
-    Type: AWS::EC2::Subnet::Id
+    Description: Select {prefix}-subnet-1d
+  NlbArn:
+    Type: String
+    Default: Ex.) arn:aws:elasticloadbalancing:<Region>:<Account ID>:loadbalancer/net/{prefix}-nlb-{env}/xxxxxxxxx
+    Description: Enter NLB ARN
   AcmCertificateArn:
     Type: String
-    Default: arn:aws:acm:ap-northeast-1:<AWS Account ID>:certificate/~~~~~
-    Description: ACM Certificate ARN
-  PortEcs:
+    Default: Ex.) arn:aws:acm:<Region>:xxxxxxxxx:certificate/xxxxxxxxx
+    Description: Enter ACM Certificate ARN
+  Eip1a:
+    Type: String
+    Default: Ex.) eipalloc-xxxxxxxxx
+    Description: Enter Allocation ID of an Elastic IP Address
+  Eip1c:
+    Type: String
+    Default: Ex.) eipalloc-xxxxxxxxx
+    Description: Enter Allocation ID of an Elastic IP Address
+  Eip1d:
+    Type: String
+    Default: Ex.) eipalloc-xxxxxxxxx
+    Description: Enter Allocation ID of an Elastic IP Address
+  FargateCpu:
     Type: Number
-    Default: 3000
-  Eip1:
+    Default: 512
+  FargateMem:
+    Type: Number
+    Default: 1024
+  TaskRoleArn:
     Type: String
-    Description: Allocation ID of an Elastic IP Address
-  Eip2:
-    Type: String
-    Description: Allocation ID of an Elastic IP Address
-  Eip3:
-    Type: String
-    Description: Allocation ID of an Elastic IP Address
-  HealthCheckPath:
-    Type: String
-    Default: /
+    Default: arn:aws:iam::<Account ID>:role/{prefix}-role-ecs-{dev}
+    Description: Enter Role Arn
 Transform:
   - AWS::CodeDeployBlueGreen
 Hooks:
@@ -81,7 +98,7 @@ Hooks:
           TrafficRouting:
             ProdTrafficRoute:
               Type: AWS::ElasticLoadBalancingV2::Listener
-              LogicalID: ListerHttps
+              LogicalID: ListenerHttps
             TargetGroups:
             - TgAlbBlue
             - TgAlbGreen
@@ -101,8 +118,8 @@ Resources:
         ToPort: 443
         CidrIp: 0.0.0.0/0
       - IpProtocol: tcp
-        FromPort: 3000
-        ToPort: 3000
+        FromPort: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
+        ToPort:   # Same as FromPort.
         CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
       - IpProtocol: -1
@@ -114,8 +131,8 @@ Resources:
       VpcId: !Ref Vpc
       SecurityGroupIngress:
       - IpProtocol: tcp
-        FromPort: 3000
-        ToPort: 3000
+        FromPort: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
+        ToPort:   # Same as FromPort.
         CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
       - IpProtocol: -1
@@ -126,17 +143,17 @@ Resources:
   AlbEcs:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub ${Prefix}-alb
+      Name: !Sub ${Prefix}-alb-${Env}
       Scheme: internal
       SecurityGroups:
       - !Ref SgAlb
       Subnets:
-      - !Ref Subnet1aPrivate
-      - !Ref Subnet1cPrivate
-      - !Ref Subnet1dPrivate
+      - !Ref Subnet1a
+      - !Ref Subnet1c
+      - !Ref Subnet1d
       Type: application
       IpAddressType: ipv4
-  ListerHttps:
+  ListenerHttps:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
@@ -150,7 +167,7 @@ Resources:
       Protocol: HTTPS
       Certificates:
       - CertificateArn: !Ref AcmCertificateArn
-  ListerPortEcs:
+  ListenerPortEcs:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
@@ -158,14 +175,14 @@ Resources:
         FixedResponseConfig:
           StatusCode: 200
       LoadBalancerArn: !Ref AlbEcs
-      Port: 3000
+      Port: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
       Protocol: HTTP
   TgAlbBlue:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${Prefix}-tg-alb-blue
+      Name: !Sub ${Prefix}-tg-alb-blue-${Env}
       HealthCheckIntervalSeconds: 300
-      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckPath: /
       HealthCheckPort: 3000
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 60
@@ -173,7 +190,7 @@ Resources:
       UnhealthyThresholdCount: 4
       Matcher:
         HttpCode: 200
-      Port: 3000
+      Port: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
       Protocol: HTTP
       Tags:
       - Key: Group
@@ -183,17 +200,17 @@ Resources:
   TgAlbGreen:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${Prefix}-tg-alb-green
+      Name: !Sub ${Prefix}-tg-alb-green-${Env}
       HealthCheckIntervalSeconds: 300
-      HealthCheckPath: !Ref HealthCheckPath
-      HealthCheckPort: 3000
+      HealthCheckPath: /
+      HealthCheckPort: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 60
       HealthyThresholdCount: 5
       UnhealthyThresholdCount: 4
       Matcher:
         HttpCode: 200
-      Port: 3000
+      Port: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
       Protocol: HTTP
       Tags:
       - Key: Group
@@ -203,36 +220,22 @@ Resources:
   # ------------------------------------------------------------#
   # NLB
   # ------------------------------------------------------------#
-  Nlb:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Name: !Sub ${Prefix}-nlb
-      Scheme: internet-facing
-      Type: network
-      IpAddressType: ipv4
-      SubnetMappings:
-      - AllocationId: !Ref Eip1
-        SubnetId: !Ref Subnet1aPublic
-      - AllocationId: !Ref Eip2
-        SubnetId: !Ref Subnet1cPrivate
-      - AllocationId: !Ref Eip3
-        SubnetId: !Ref Subnet1dPrivate
   NlbListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
       - Type: forward
         TargetGroupArn: !Ref TgNlb
-      LoadBalancerArn: !Ref Nlb
+      LoadBalancerArn: !Ref NlbArn
       Port: 443
       Protocol: TCP
   TgNlb:
     DependsOn:
-    - ListerHttps
+    - ListenerHttps
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${Prefix}-tg-nlb
-      HealthCheckPath: !Ref HealthCheckPath
+      Name: !Sub ${Prefix}-tg-nlb-${Env}
+      HealthCheckPath: /
       HealthCheckPort: 3000
       HealthCheckProtocol: HTTP
       Port: 443
@@ -245,7 +248,11 @@ Resources:
   # ------------------------------------------------------------#
   # ECS
   # ------------------------------------------------------------#
-  RoleEcsTask:
+  ECSLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/ecs/logs/${Prefix}-ecs-${Env}'
+  RoleEcsTaskExec:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -260,37 +267,44 @@ Resources:
   TaskDefBlue:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      ExecutionRoleArn: !GetAtt 
-      - RoleEcsTask
+      TaskRoleArn: !Ref TaskRoleArn
+      ExecutionRoleArn: !GetAtt
+      - RoleEcsTaskExec
       - Arn
       ContainerDefinitions:
-      - Name: !Sub ${Prefix}-ecs-container
-        # ----------------------------- Image URI ----------------------------------------------#
-        Image: 
+      - Name: !Sub ${Prefix}-ecs-container-${Env}
+        # ----------------------------- URI ----------------------------------------------------#
+        Image: # Here is the image name. Ex.) docker.io/amazon/amazon-ecs-sample:latest
         # --------------------------------------------------------------------------------------#
         PortMappings:
         - Protocol: tcp
-          HostPort: 3000
-          ContainerPort: 3000
+          HostPort: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
+          ContainerPort: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-region: !Ref AWS::Region
+            awslogs-group: !Ref ECSLogGroup
+            awslogs-stream-prefix: !Sub ${Prefix}-log-driver-${Env}
       RequiresCompatibilities:
       - FARGATE
       NetworkMode: awsvpc
-      # --- Image size---#
-      Cpu: 256
-      Memory: 512
-      # --------------------------------------------------------------------------------#
-      Family: !Sub ${Prefix}-ecs-task
+      # --- Fargate --- #
+      Cpu: !Sub ${FargateCpu}
+      Memory: !Sub ${FargateMem}
+      # --------------- #
+      Family: !Sub ${Prefix}-ecs-task-${Env}
   EcsCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub ${Prefix}-ecs-cluster
+      ClusterName: !Sub ${Prefix}-ecs-cluster-${Env}
   EcsService:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref EcsCluster
       DeploymentController:
         Type: EXTERNAL
-      ServiceName: !Sub ${Prefix}-ecs-service
+      ServiceName: !Sub ${Prefix}-ecs-service-${Env}
   TaskSetBlue:
     Type: AWS::ECS::TaskSet
     Properties:
@@ -302,9 +316,8 @@ Resources:
           SecurityGroups:
           - !Ref SgEcs
           Subnets:
-          - !Ref Subnet1aPrivate
-          - !Ref Subnet1cPrivate
-          - !Ref Subnet1dPrivate
+          - !Ref Subnet1a
+          - !Ref Subnet1d
       PlatformVersion: 1.4.0
       Scale:
         Unit: PERCENT
@@ -312,14 +325,15 @@ Resources:
       Service: !Ref EcsService
       TaskDefinition: !Ref TaskDefBlue
       LoadBalancers:
-      - ContainerName: !Sub ${Prefix}-ecs-container
-        ContainerPort: 3000
+      - ContainerName: !Sub ${Prefix}-ecs-container-${Env}
+        ContainerPort: # If you want to set the specific port for ECS, please set the FromPort and ToPort.
         TargetGroupArn: !Ref TgAlbBlue
   PrimaryTaskSet:
     Type: AWS::ECS::PrimaryTaskSet
     Properties:
       Cluster: !Ref EcsCluster
       Service: !Ref EcsService
-      TaskSetId: !GetAtt 
+      TaskSetId: !GetAtt
       - TaskSetBlue
       - Id
+

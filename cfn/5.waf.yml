@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: CloudFormation Setting
+      Parameters:
+      - Prefix
+      - Env
+    - Label:
+        default: Amazon WAF Setting
+      Parameters:
+      - Scope
+      - WebAclAssociationResourceArn
+Parameters:
+  Prefix:
+    Type: String
+  Env:
+    Type: String
+    AllowedValues:
+    - dev
+    - qa
+    - prod
+  Scope:
+    Type: String
+    Default: REGIONAL
+    Description: Fill in the scope of waf (REGIONAL or CLOUDFRONT)
+  WebAclAssociationResourceArn:
+    Type: String
+    Description: Enter target ALB ARN
+Resources:
+  # ------------------------------------------------------------#
+  # Amazon WAF
+  # ------------------------------------------------------------#
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties: 
+      Name: !Sub ${Prefix}-web-acl-${Env}
+      Scope: !Ref Scope
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        SampledRequestsEnabled: true
+        MetricName: !Sub ${Prefix}-web-acl-${Env}
+      Rules:
+        - Name: AWS-AWSManagedRulesCommonRuleSet
+          Priority: 1
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          OverrideAction:
+            Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            SampledRequestsEnabled: true
+            MetricName: AWS-AWSManagedRulesCommonRuleSet
+  WAFLogConfig: 
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      LogDestinationConfigs:
+        - !GetAtt S3BacketForWaflog.Arn
+      ResourceArn: !GetAtt WebAcl.Arn
+  WebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref WebAclAssociationResourceArn
+      WebACLArn: !GetAtt WebAcl.Arn
+  # ------------------------------------------------------------#
+  # S3 for WAF
+  # ------------------------------------------------------------#
+  S3BacketForWaflog:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub aws-waf-logs-${Prefix}-${Env}-${AWS::AccountId}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+  S3BacketForAthenaQuery:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub athena-query-results-${Prefix}-${Env}-${AWS::AccountId}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
