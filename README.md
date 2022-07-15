@@ -6,7 +6,7 @@
 - [ ] You need to have pushed a Docker image to ECR
 - [ ] Your machine has to have AWS CLI installed
 
-※ If you don't use Document DB, you can skip launching '2.db.yml'
+※ If you don't use Document DB, you can skip launching '2.db.yml'<br>
 ※ If you don't use WAF, you can skip launching '5.waf.yml'
 
 # Usage
