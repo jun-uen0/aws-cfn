@@ -1,0 +1,157 @@
+# このファイル内でのみ使用する変数を定義
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_VERSION: 18.09.7
+  COMPOSE_VERSION: 1.26.0
+  GLIBC_VERSION: 2.31-r0
+  DOCKER_DRIVER: overlay2
+
+# 4. 環境変数の読み込み
+.call_env: &call_env
+  - source ./ops/scripts/env/$ENV
+  - source ./ops/scripts/env/common
+
+  # env/commonで定義された環境変数
+  - echo $BASE_IMAGE
+  - echo $IMAGE_NAME
+  - echo $ECR_REGISTORY
+  - echo $ECR_REPOSITORY
+  - echo $S3_BUCKET
+  - echo $AWS_REGION
+  - echo $VERSION
+
+  # env/[dev,stg,prod]で定義された環境変数
+  - echo $ENV
+  - echo $ACCOUNT
+
+  # GitLab CI/CD Variablesで定義された環境変数
+  - echo $AWS_ACCESS_KEY_ID
+  - echo $AWS_SECRET_ACCESS_KEY
+
+# 5. 必要なパッケージのインストール
+.install_packages: &install_packages
+  - apk update
+  - apk add jq curl
+
+# 6. docker-composeのインストール
+.install_docker_compose: &install_docker_compose
+  - mkdir -p /usr/local/lib/docker/cli-plugins
+  - >
+      curl
+      -L https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)
+      -o /usr/local/lib/docker/cli-plugins/docker-compose
+  - chmod 700 /usr/local/lib/docker/cli-plugins/docker-compose
+  - ln -s /usr/local/lib/docker/cli-plugins/docker-compose /usr/bin/docker-compose
+  - docker-compose --version
+    
+# 7. glibcのインストール
+.install_glibc: &install_glibc
+  - curl -sL https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub -o /etc/apk/keys/sgerrand.rsa.pub
+  - curl -sLO https://github.com/sgerrand/alpine-pkg-glibc/releases/download/$GLIBC_VERSION/glibc-$GLIBC_VERSION.apk
+  - curl -sLO https://github.com/sgerrand/alpine-pkg-glibc/releases/download/$GLIBC_VERSION/glibc-bin-$GLIBC_VERSION.apk
+  - curl -sLO https://github.com/sgerrand/alpine-pkg-glibc/releases/download/$GLIBC_VERSION/glibc-i18n-$GLIBC_VERSION.apk
+  - apk add --no-cache glibc-$GLIBC_VERSION.apk glibc-bin-$GLIBC_VERSION.apk glibc-i18n-$GLIBC_VERSION.apk
+  - /usr/glibc-compat/bin/localedef -i en_US -f UTF-8 en_US.UTF-8
+
+# 8. AWS CLI v2のインストール
+.install_aws: &install_aws
+  - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  - unzip -q awscliv2.zip
+  - aws/install
+
+# 9. AWS profileの設定
+.aws_credentials: &aws_credentials
+  - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID         # 環境変数ファイル[dev,stg,prod]で設定
+  - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY # 環境変数ファイル[dev,stg,prod]で設定
+  - export AWS_DEFAULT_REGION=$AWS_REGION               # 環境変数ファイルcommonで設定
+
+# 10. イメージのビルドとECRへのプッシュ、ecs-$ENV-$VERSION.ymlの作成
+.bulid_push_update_ecsyml: &bulid_push_update_ecsyml
+  - cd ./ops/scripts
+  - docker-compose build base
+  - docker-compose build $ENV
+  - docker tag $IMAGE_NAME':latest' $ECR_REPOSITORY:$VERSION
+  - docker images
+  - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTORY
+  - docker push $ECR_REPOSITORY:$VERSION
+  - IMAGE_URI=${ECR_REPOSITORY/\//\\/}:$VERSION
+  - mkdir out
+  - cat ../cfn/ecs.yml| sed "s/__DOCKER_IMAGE_URI__/$IMAGE_URI/" > ./out/ecs-$ENV-$VERSION.yml
+  - ls out
+
+# 11. 作成したecs-$ENV-$VERSION.ymlをS3へアップロード
+.upload_ecsyml_s3: &upload_ecsyml_s3
+  - aws s3 cp ./out/ecs-$ENV-$VERSION.yml s3://$S3_BUCKET/ecs.yml
+
+# 12. S3へアップロードしたecs.ymlを元にCloudFormationスタック「ecs」を更新
+.update_stack_ecs: &update_stack_ecs
+  - >
+      aws cloudformation update-stack
+      --stack-name ecs
+      --template-url https://$S3_BUCKET.s3.$AWS_REGION.amazonaws.com/ecs.yml
+      --parameters
+      ParameterKey='Prefix',UsePreviousValue=true
+      ParameterKey='Env',UsePreviousValue=true
+      ParameterKey='Vpc',UsePreviousValue=true
+      ParameterKey='Subnet1a',UsePreviousValue=true
+      ParameterKey='Subnet1c',UsePreviousValue=true
+      ParameterKey='Subnet1d',UsePreviousValue=true
+      ParameterKey='NlbArn',UsePreviousValue=true
+      ParameterKey='AcmCertificateArn',UsePreviousValue=true
+      ParameterKey='Eip1a',UsePreviousValue=true
+      ParameterKey='Eip1c',UsePreviousValue=true
+      ParameterKey='Eip1d',UsePreviousValue=true
+      ParameterKey='FargateCpu',UsePreviousValue=true
+      ParameterKey='FargateMem',UsePreviousValue=true
+      ParameterKey='TaskRoleArn',UsePreviousValue=true
+      --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND
+
+# 1 グローバルに公式のDockerイメージを適用
+default:
+  image: docker:$DOCKER_VERSION
+  services:
+    - docker:$DOCKER_VERSION-dind
+
+# 2. コミットブランチごとに異なる環境変数を定義
+workflow:
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "feature/gitlab-ci" # テスト用 / 開発環境として使用
+      variables:
+        ENV: "dev"
+        AWS_ACCESS_KEY_ID: $DEV_AWS_ACCESS_KEY_ID
+        AWS_SECRET_ACCESS_KEY: $DEV_AWS_SECRET_ACCESS_KEY
+    - if: $CI_COMMIT_REF_NAME == "develop"
+      variables:
+        ENV: "dev"
+        AWS_ACCESS_KEY_ID: $DEV_AWS_ACCESS_KEY_ID         # GitLab CI/CD Variablesで定義された環境変数
+        AWS_SECRET_ACCESS_KEY: $DEV_AWS_SECRET_ACCESS_KEY # GitLab CI/CD Variablesで定義された環境変数
+    - if: $CI_COMMIT_REF_NAME == "staging"
+      variables:
+        ENV: "stg"
+        AWS_ACCESS_KEY_ID: $STG_AWS_ACCESS_KEY_ID
+        AWS_SECRET_ACCESS_KEY: $STG_AWS_SECRET_ACCESS_KEY
+    - if: $CI_COMMIT_REF_NAME == "main"
+      variables:
+        ENV: "prod"
+        AWS_ACCESS_KEY_ID: $PROD_AWS_ACCESS_KEY_ID
+        AWS_SECRET_ACCESS_KEY: $PROD_AWS_SECRET_ACCESS_KEY
+
+# 3. 全ての環境(dev,stg,prod)で実行するジョブ
+all-environments:
+  rules:
+    # ここで指定されたブランチがジョブの対象となる
+    - if: '$CI_COMMIT_BRANCH == "feature/gitlab-ci"' # テスト用に使用
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_COMMIT_BRANCH == "staging"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - *call_env
+    - *install_packages
+    - *install_glibc
+    - *install_aws
+    - *install_docker_compose
+  script:
+    - *aws_credentials
+    - *bulid_push_update_ecsyml
+    - *upload_ecsyml_s3
+    - *update_stack_ecs
