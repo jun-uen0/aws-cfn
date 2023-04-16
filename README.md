@@ -15,3 +15,8 @@
 3. Launch '3.nlb.yml'
 4. Launch '4.ecs.yml'
 5. Launch '5.waf.yml'
+
+# Reference
+How to build blue/green deployment with AWS Fargate and AWS CloudFormation<br>
+https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/blue-green.html#blue-green-resources
+
