@@ -5,6 +5,8 @@
 - [ ] You need to import SSL Certification to ACM
 - [ ] You need to have pushed a Docker image to ECR
 - [ ] Your machine has to have AWS CLI installed
+- [ ] You need to define environment variables in './env/[dev,stg,prod]' ※ Make directory and files
+- [ ] You need to define AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in GitLab CI/CD Variables
 
 ※ If you don't use Document DB, you can skip launching '2.db.yml'<br>
 ※ If you don't use WAF, you can skip launching '5.waf.yml'
