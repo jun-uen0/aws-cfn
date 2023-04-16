@@ -47,7 +47,7 @@ package db.yml {
       AuroraAmazonRDSInstance(DbInstance2,"DB Instance 2","db.t3.medium")
     }
   }
-  [**Secury Group (DB用)**\nInbound:27017/8081\nOutbound:All]
+  [**Secury Group (for DB)**\nInbound:27017/8081\nOutbound:All]
   DbInstance1 --> DocDb
   DbInstance2 --> DocDb
 }
@@ -72,7 +72,7 @@ EC2ElasticIPAddress(Eip,"Elastic IP","Domain")
     ElasticContainerServiceContainer1(EcsContainer,"ECS Container","{prefix}-ecs-container-{env}"){
       (**Port**\nContainer Port: xxxx\nHost Port: xxxx) as ContainerPort
     }
-[**Secury Group (ECS用)**\nInbound:xxxx\nOutbound:All]
+[**Secury Group (for ECS)**\nInbound:xxxx\nOutbound:All]
   }
   CertificateManager(Acm,"SSL Certificate","Domain")
   EcsContainer --> EcsService: ECS Service Setting

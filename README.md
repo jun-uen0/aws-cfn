@@ -1,7 +1,5 @@
 # CloudFormation Templates
 
-![Diagram](diagram/component.png)
-
 - [ ] You need to import SSL Certification to ACM
 - [ ] You need to have pushed a Docker image to ECR
 - [ ] Your machine has to have AWS CLI installed
@@ -21,4 +19,3 @@
 # Reference
 How to build blue/green deployment with AWS Fargate and AWS CloudFormation<br>
 https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/blue-green.html#blue-green-resources
-
